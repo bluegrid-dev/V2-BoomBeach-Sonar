@@ -1,6 +1,6 @@
-# V2 海岛奇兵国际服声纳工具 | Boom Beach Sonar Automation
+# V2 海岛奇兵国际服声呐工具 | Boom Beach Sonar Automation
 
-在雷电模拟器中自动识别声纳棋盘、侦察潜艇位置并使用蓝弹攻击，通过 Windows 窗口控制开始、停止和运行状态。
+在雷电模拟器中自动识别声呐棋盘、侦察潜艇位置并使用蓝弹攻击，通过 Windows 窗口控制开始、停止和运行状态。
 
 **[下载 v2.0.0 ZIP](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/archive/refs/tags/v2.0.0.zip)** · [查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
 
@@ -66,7 +66,7 @@
 
 ## 许可
 
-V2 海岛奇兵声纳自动化工具由 bluegrid-dev 独立开发并维护，项目作者保留原创代码、脚本、文档、识别模型及相关成果的著作权。
+V2 海岛奇兵声呐自动化工具由 bluegrid-dev 独立开发并维护，项目作者保留原创代码、脚本、文档、识别模型及相关成果的著作权。
 
 允许个人或项目在非商业用途范围内免费使用、学习、复制、修改、二次开发和再发布，包括制作及分享派生版本。
 二次开发与再发布
