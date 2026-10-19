@@ -4,8 +4,13 @@
 
 **[下载 v2.0.0 ZIP](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/archive/refs/tags/v2.0.0.zip)** · [查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
 
-准备好雷电和国际服后，**下载 ZIP → 完整解压 → 双击 `启动.cmd` → 点击“开始”**。首次启动自动准备 Python 环境和本机配置，无需 Git 或编程知识。
+主要环境：Windows 10/11 · 雷电9 · 1280×720 · DPI 320 · Root 最高权限准备好雷电和国际服
 
+**下载 ZIP → 完整解压 → 双击 `启动.cmd` → 点击“开始”**。首次启动自动准备 Python 环境和本机配置
+
+游戏地图请使用默认（原始）皮肤；部分皮肤会改变画面视角，可能导致识别或点击位置不匹配。
+
+正常情况下，单关约 1-2 分钟，实际耗时会因关卡、网络和设备状态有所波动。
 ## 主要功能
 
 - 自动截图、识别棋盘与舰队，根据画面信息推断潜艇位置。
@@ -20,8 +25,8 @@
 | --- | --- |
 | 电脑 | 64 位 Windows，使用系统自带的 PowerShell |
 | 模拟器 | 雷电 9，Android 9 |
-| 游戏 | 海岛奇兵正式国际服 |
-| 模拟器设置 | 1280×720，开启 ADB 和 Root |
+| 游戏 | 海岛奇兵国际服 |
+| 模拟器设置 | 1280×720，DPI 320  开启 ADB 和 Root |
 | 网络 | 正常游戏需要联网；首次缺少 Python 时需访问 Python 官网下载环境 |
 
 普通用户无需手动安装 Python、Git、JDK 或 Android SDK，也无需填写 JSON。雷电模拟器与游戏需自行安装并完成上述设置。
