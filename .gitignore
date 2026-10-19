@@ -1,0 +1,11 @@
+/local.json
+/work/
+/.runtime/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.log
+*.pid
+*.sqlite3
+*.sqlite3-*

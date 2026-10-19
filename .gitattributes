@@ -1,0 +1,7 @@
+* text=auto
+*.cmd text eol=crlf
+*.sh text eol=lf
+*.bin binary
+*.ttf binary
+*.jar binary
+停止.cmd text eol=lf
