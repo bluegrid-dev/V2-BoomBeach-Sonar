@@ -4,7 +4,7 @@
 
 **[下载 v2.0.0 ZIP](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/archive/refs/tags/v2.0.0.zip)** · [查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
 
-准备好雷电和正式国际服后，**下载 ZIP → 完整解压 → 双击 `启动.cmd` → 点击“开始”**。首次启动自动准备 Python 环境和本机配置，无需 Git 或编程知识。
+准备好雷电和国际服后，**下载 ZIP → 完整解压 → 双击 `启动.cmd` → 点击“开始”**。首次启动自动准备 Python 环境和本机配置，无需 Git 或编程知识。
 
 ## 主要功能
 
