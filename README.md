@@ -2,7 +2,7 @@
 
 在雷电模拟器中自动识别声呐棋盘、侦察潜艇位置并使用蓝弹攻击，通过 Windows 窗口控制开始、停止和运行状态。
 
-**[下载 v2.0.0 ZIP](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/archive/refs/tags/v2.0.0.zip)** · [查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
+**[下载 v2.0.1 ZIP](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/archive/refs/tags/v2.0.1.zip)** · [查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
 
 主要环境：Windows 10/11 · 雷电9 · 1280×720 · DPI 320 · Root 最高权限准备好雷电和国际服
 
@@ -34,7 +34,7 @@ PowerShell 5.1 是已实测通过的环境，不能说其他版本一律不能�
 
 ## 下载与启动
 
-1. 下载上方的 **v2.0.0 ZIP**；也可在 [Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) 页的 **Assets → Source code (zip)** 下载。仓库的 **Code → Download ZIP** 提供主分支文件。
+1. 下载上方的 **v2.0.1 ZIP**；也可在 [Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) 页的 **Assets → Source code (zip)** 下载。仓库的 **Code → Download ZIP** 提供主分支文件。
 2. **完整解压** ZIP，在解压后的文件夹中操作，不要直接在压缩软件里运行启动文件。
 3. 启动雷电，打开海岛奇兵正式国际服，再双击 **`启动.cmd`**。
 4. 首次启动会检查环境；缺少可用 Python/Tk 时自动下载并校验。若有多台在线设备，按提示输入正式国际服设备的编号。

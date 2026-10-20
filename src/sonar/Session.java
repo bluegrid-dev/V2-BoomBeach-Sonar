@@ -221,7 +221,14 @@ final class Session {
         Vision.Observation scouted;
         // The close button is locked while an offline shot is pending. Android
         // Back follows the client's activity-return path and retains that shot.
-        try{checkStop();if(!Device.foreground(pkg))throw new IOException("前台已离开目标游戏，停止返回");device.back();await("退出声呐",null,o->o.page.equals("home"),15000);scouted=enterBoard(board.grid);}
+        try{
+            checkStop();if(!Device.foreground(pkg))throw new IOException("前台已离开目标游戏，停止返回");device.back();await("退出声呐",null,o->o.page.equals("home"),15000);scouted=enterBoard(board.grid);
+            if(!blue){
+                SystemClock.sleep(300);
+                scouted=observe(board.grid);
+                if(!scouted.page.equals("board"))throw new IOException("红侦等待后未识别到棋盘：页面="+scouted.page);
+            }
+        }
         catch(WaitExpired e){scouted=recheckAction(before,cell,kind,e);}
         board.scout(scouted);save("scout.png");event("scout_observed");
         report("恢复通信");network.disposeConnections();
