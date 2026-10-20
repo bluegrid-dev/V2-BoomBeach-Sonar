@@ -2,7 +2,6 @@
 
 在雷电模拟器中自动识别声呐棋盘、侦察潜艇位置并使用蓝弹攻击，通过 Windows 窗口控制开始、停止和运行状态。
 
-[查看 Releases](https://github.com/bluegrid-dev/V2-BoomBeach-Sonar/releases) · [仅限非商业用途](LICENSE)
 
 主要环境：Windows 10/11 · 雷电9 · 1280×720 · DPI 320 · Root 最高权限准备好雷电和国际服
 
