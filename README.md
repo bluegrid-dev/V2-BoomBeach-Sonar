@@ -18,7 +18,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 电脑 | 64 位 Windows，使用系统自带的 PowerShell |
+| 电脑 | 64 位 Windows 10/11，使用系统自带的 Windows PowerShell 5.1，无需另装 PowerShell 7 |
 | 模拟器 | 雷电 9，Android 9 |
 | 游戏 | 海岛奇兵正式国际服 |
 | 模拟器设置 | 1280×720，开启 ADB 和 Root |
