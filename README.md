@@ -23,12 +23,13 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 电脑 | 64 位 Windows 10/11，使用系统自带的 Windows PowerShell 5.1，无需另装 PowerShell 7 |
+| 电脑 | 64 位 Windows 10/11，使用系统自带的 Windows PowerShell 5.1，|
 | 模拟器 | 雷电 9，Android 9 |
 | 游戏 | 海岛奇兵国际服 |
 | 模拟器设置 | 1280×720，DPI 320  开启 ADB 和 Root |
 | 网络 | 正常游戏需要联网；首次缺少 Python 时需访问 Python 官网下载环境 |
 
+PowerShell 5.1 是已实测通过的环境，不能说其他版本一律不能用。
 普通用户无需手动安装 Python、Git、JDK 或 Android SDK，也无需填写 JSON。雷电模拟器与游戏需自行安装并完成上述设置。
 
 ## 下载与启动
