@@ -35,10 +35,10 @@ final class Session {
             save("initial.png");event("initial");
             while(true){checkStop();try{int target=board.attack();
                 if(target>=0){attack(target);continue;}
-                Strategy strategy=new Strategy(board.grid.n,board.known,board.fleet,board.sunk,board.completed);
-                target=strategy.certain(board.known);
-                if(target>=0){board.known[target]=Vision.SHIP;event("deduced");attack(target);continue;}
-                target=strategy.scout(board.known);
+                Strategy strategy=board.strategy();
+                target=strategy.certain(board.known,board.suspect,board.unavailable());
+                if(target>=0){event("deduced",new JSONObject().put("cell",target));attack(target);continue;}
+                target=strategy.scout(board.known,board.suspect,board.unavailable());
                 if(target<0)throw new Board.ReviewNeeded("棋盘位置已读完但没有看到胜利，停止检查实际结果");
                 scout(target);
             }catch(Board.ReviewNeeded e){recheck(e);}
@@ -68,7 +68,7 @@ final class Session {
     }
     boolean[] confirmedOpened(){
         if(board==null)return null;
-        boolean[] opened=new boolean[board.known.length];for(int i=0;i<opened.length;i++)opened[i]=board.confirmed[i]!=Vision.UNKNOWN;return opened;
+        boolean[] opened=new boolean[board.known.length];for(int i=0;i<opened.length;i++)opened[i]=board.attacked[i]||board.confirmed[i]!=Vision.UNKNOWN;return opened;
     }
     Vision.Observation observe(Vision.Grid geometry,boolean[] opened)throws Exception{
         if(latest!=null)latest.recycle();latest=device.capture();frames++;int[] pixels=new int[latest.getWidth()*latest.getHeight()];latest.getPixels(pixels,0,latest.getWidth(),0,0,latest.getWidth(),latest.getHeight());
@@ -208,6 +208,9 @@ final class Session {
         boolean blue=blueScout();
         final String kind=blue?"blue_scout":"red";
         Vision.Observation before=requireAmmo(blue);
+        if(board.reconcileShots(before)){
+            report("已有投弹结论出现冲突，重新判断目标");event("shot_evidence_replanned");return;
+        }
         final int baseline=blue?before.blue:before.red;
         board.grid=before.grid;board.blue=before.blue;board.red=before.red;
         if(board.refreshCompleted(before)){
@@ -236,7 +239,8 @@ final class Session {
                 scouted=await("末格蓝侦胜利或水格",board.grid,o->{
                     if(o.page.equals("victory"))return true;
                     int seen=Vision.attackResult(before,o,cell);
-                    boolean water=seen==Vision.WATER&&last[0]==Vision.WATER;last[0]=seen;return water;
+                    boolean clearWater=seen==Vision.WATER&&Vision.attackReliable(before,o,cell);
+                    boolean water=clearWater&&last[0]==Vision.WATER;last[0]=clearWater?Vision.WATER:Vision.UNKNOWN;return water;
                 },15000);
             }
         }
@@ -249,7 +253,7 @@ final class Session {
             if(!blue){forceBlueScout=true;report("红侦出现胜利，撤回后本关改用蓝侦");}
             withdrawScout(blue,baseline);return;
         }
-        if(keepVictory&&Vision.attackResult(before,scouted,cell)!=Vision.WATER)
+        if(keepVictory&&(Vision.attackResult(before,scouted,cell)!=Vision.WATER||!Vision.attackReliable(before,scouted,cell)))
             throw new IOException("末格蓝侦尚未确认胜利或水格，保留未确认记录");
         board.scout(scouted);save("scout.png");event("scout_observed");
         withdrawScout(blue,baseline);
@@ -311,9 +315,14 @@ final class Session {
         report("蓝弹攻击 "+coordinate(cell));
         Vision.Observation before=observe(board.grid);
         if(!before.page.equals("board"))throw new Board.ReviewNeeded("蓝弹前未识别到棋盘，停止核对画面：页面="+before.page);
+        if(before.grid.n!=board.grid.n||!java.util.Arrays.equals(before.fleet,board.fleet))
+            throw new Board.ReviewNeeded("蓝弹前棋盘或舰队未确认一致，没有投弹");
+        if(board.reconcileShots(before)){
+            report("已有投弹结论出现冲突，重新判断目标");event("shot_evidence_replanned");return;
+        }
         if(!before.covered[cell])throw new Board.ReviewNeeded("蓝弹目标没有可见盖板，停止核对棋盘："+coordinate(cell));
         board.grid=before.grid;
-        tap(1119,655);journal("blue",cell);aim(cell);blueActions++;
+        tap(1119,655);journal("blue",cell);aim(cell);board.recordAttack(cell);blueActions++;
         final int[] last={Vision.UNKNOWN};
         Vision.Observation result;
         try{result=await("蓝弹目标格变化",board.grid,o->{
@@ -326,12 +335,12 @@ final class Session {
     void finishAttack(int cell,Vision.Observation before,Vision.Observation result)throws Exception{
         if(result.page.equals("victory")){nextLevel();finishAction();return;}
         int observed=Vision.attackResult(before,result,cell);
+        boolean reliable=Vision.attackReliable(before,result,cell);
         if(observed==Vision.SHIP&&result.cells[cell]!=Vision.SHIP)System.out.println("侧栏新增击沉，确认本次蓝弹命中 "+coordinate(cell));
         result.cells[cell]=observed;
         // The hit flash also covers unrelated cells. This acknowledgement proves
         // only the targeted cell, not ammunition consumption or unrelated cells.
-        board.known[cell]=result.cells[cell];board.saved[cell]=true;board.blue=result.blue;board.red=result.red;
-        board.confirmed[cell]=observed;
+        board.acceptShot(cell,observed,reliable);board.blue=result.blue;board.red=result.red;
         board.completed=result.completed.clone();
         board.rememberSunk(result);
         board.completedWater(result);
@@ -343,10 +352,10 @@ final class Session {
             await("胜利画面",board.grid,o->o.page.equals("victory"),15000);nextLevel();
         }
     }
-    boolean allAttacksVisible(){int total=0,hits=0;for(int length:board.fleet)total+=length;for(int i=0;i<board.known.length;i++)if(board.known[i]==Vision.SHIP&&board.saved[i])hits++;return hits==total;}
+    boolean allAttacksVisible(){return board.remainingShipCells()==0;}
     // Shared only by error paths. Stable pixels supply evidence; no input is sent.
     Vision.Observation reviewView(String what,int resource)throws Exception{
-        boolean[] opened=new boolean[board.known.length];for(int i=0;i<opened.length;i++)opened[i]=board.confirmed[i]!=Vision.UNKNOWN;
+        boolean[] opened=confirmedOpened();
         final Vision.Observation[] previous={null};
         return await(what,board.grid,o->{
             if(resource==0&&o.page.equals("victory"))return true;
@@ -442,7 +451,10 @@ final class Session {
     void report(String phase)throws Exception{this.phase=phase;atomic(new File(root,"status.json"),status().toString());System.out.println(phase);}
     void reject(String message)throws Exception{outcome="error";report(message);throw new IOException(message);}
     void event(String kind)throws Exception{event(kind,null);}
-    void event(String kind,JSONObject detail)throws Exception{if(trace!=null){JSONObject o=status().put("event",kind).put("time",System.currentTimeMillis());if(detail!=null)o.put("detail",detail);if(board!=null)o.put("grid",new JSONArray(board.grid.h)).put("completed",new JSONArray(board.completed));trace.write((o.toString()+"\n").getBytes(StandardCharsets.UTF_8));trace.flush();}}
+    void event(String kind,JSONObject detail)throws Exception{if(trace!=null){JSONObject o=status().put("event",kind).put("time",System.currentTimeMillis());if(detail!=null)o.put("detail",detail);if(board!=null)o.put("grid",new JSONArray(board.grid.h)).put("completed",new JSONArray(board.completed))
+        .put("confirmed",new JSONArray(board.confirmed)).put("attacked",new JSONArray(board.attacked))
+        .put("suspect",new JSONArray(board.suspect)).put("saved",new JSONArray(board.saved)).put("sunk",new JSONArray(board.sunk));
+        trace.write((o.toString()+"\n").getBytes(StandardCharsets.UTF_8));trace.flush();}}
     static void atomic(File path,String text)throws Exception{File temp=new File(path.getPath()+".new");try(FileOutputStream out=new FileOutputStream(temp)){out.write(text.getBytes(StandardCharsets.UTF_8));out.getFD().sync();}if(!temp.renameTo(path))throw new IOException("状态文件写入失败");}
     static final class Stopped extends Exception {Stopped(String message){super(message);}}
     static final class WaitExpired extends IOException {WaitExpired(String message){super(message);}}

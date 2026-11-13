@@ -42,6 +42,10 @@ final class Strategy {
     final List<Placement> placements = new ArrayList<>();
     final int[] counts = new int[6];
     final long requiredLo, requiredHi, lockedLo, lockedHi;
+    final int[] sourceFleet, sourceCells;
+    final List<int[]> sourceSunk = new ArrayList<>();
+    Strategy activeFallback;
+    boolean relaxedInput;
     long answerLo, answerHi, deadline;
     boolean timedOut;
 
@@ -49,6 +53,9 @@ final class Strategy {
     // every known ship cell; offline discoveries alone do not imply completion.
     Strategy(int n, int[] cells, int[] fleet, List<int[]> sunk, int[] completed) {
         this.n = n;
+        sourceFleet = fleet.clone();
+        sourceCells = cells.clone();
+        for (int[] ship : sunk) sourceSunk.add(ship.clone());
         long waterLo = 0, waterHi = 0, hitLo = 0, hitHi = 0;
         for (int i = 0; i < cells.length; i++) {
             if (cells[i] == Vision.WATER) {
@@ -225,19 +232,29 @@ final class Strategy {
     }
 
     int certain(int[] known) throws Exception {
+        return certain(known, null, null);
+    }
+
+    int certain(int[] known, boolean[] suspect, boolean[] unavailable) throws Exception {
+        if (activeFallback != null) return activeFallback.certain(activeFallback.sourceCells, null, unavailable);
+        if (relaxedInput) {known = sourceCells;suspect = null;}
         int valid = solve(-1, 60);
         if (valid == 0) {
+            activeFallback = withoutWeak(known, suspect);
+            if (activeFallback != null) return activeFallback.certain(activeFallback.sourceCells, null, unavailable);
             throw new Board.ReviewNeeded("棋盘观察与舰队数量矛盾；没有继续投弹");
         }
         if (valid < 0) {
             return -1;
         }
         long lo = answerLo, hi = answerHi;
+        long reviewEnd = System.nanoTime() + 40000000;
         // A cell is certain only when excluding it is exhaustively impossible.
         // A timed-out exclusion search does not establish certainty.
         for (int i = 0; i < known.length; i++) {
-            if (known[i] == Vision.UNKNOWN && (i < 64 ? (lo & (1L << i)) != 0 : (hi & (1L << (i - 64))) != 0)) {
-                if (solve(i, 20) == 0) {
+            if (eligible(known, suspect, unavailable, i)
+                && (i < 64 ? (lo & (1L << i)) != 0 : (hi & (1L << (i - 64))) != 0)) {
+                if (solve(i, 20) == 0 && toleratesOneMisread(known, suspect, i, reviewEnd)) {
                     return i;
                 }
             }
@@ -245,7 +262,73 @@ final class Strategy {
         return -1;
     }
 
+    boolean toleratesOneMisread(int[] known, boolean[] suspect, int target, long end) {
+        if (suspect == null) return true;
+        List<Integer> weak = new ArrayList<>();
+        for (int i = 0; i < known.length; i++) if (suspect[i] && known[i] != Vision.UNKNOWN) weak.add(i);
+        if (weak.isEmpty()) return true;
+        // Check at most four alternatives. Further weak labels are relaxed in
+        // every alternative, so the work limit cannot turn them into facts.
+        int checked = Math.min(4, weak.size());
+        for (int trial = 0; trial < checked; trial++) {
+            long remaining = (end - System.nanoTime()) / 1000000;
+            if (remaining <= 0) return false;
+            int[] relaxed = known.clone();
+            boolean[] removed = new boolean[known.length];
+            for (int k = 0; k < weak.size(); k++) if (k == trial || k >= checked) {
+                int cell = weak.get(k);relaxed[cell] = Vision.UNKNOWN;removed[cell] = true;
+            }
+            try {
+                Strategy alternative = alternative(relaxed, removed);
+                if (alternative.solve(target, remaining) != 0) return false;
+            } catch (Board.ReviewNeeded contradiction) {
+                // Relaxing a valid board must not manufacture a proof.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    Strategy withoutWeak(int[] known, boolean[] suspect) {
+        if (suspect == null) return null;
+        int[] relaxed = known.clone();boolean[] removed = new boolean[known.length];boolean any = false;
+        for (int i = 0; i < known.length; i++) if (suspect[i] && known[i] != Vision.UNKNOWN) {
+            relaxed[i] = Vision.UNKNOWN;removed[i] = true;any = true;
+        }
+        return any ? alternative(relaxed, removed) : null;
+    }
+
+    Strategy alternative(int[] cells, boolean[] removed) {
+        return new Strategy(n, cells, sourceFleet, independentHulls(n, sourceSunk, removed), null);
+    }
+
+    static List<int[]> independentHulls(int n, List<int[]> hulls, boolean[] removed) {
+        List<int[]> result = new ArrayList<>();
+        for (int[] ship : hulls) {
+            boolean depends = false;
+            for (int cell : ship) for (int i = 0; i < removed.length; i++)
+                if (removed[i] && Math.abs(cell / n - i / n) <= 1 && Math.abs(cell % n - i % n) <= 1) depends = true;
+            if (!depends) result.add(ship);
+        }
+        return result;
+    }
+
+    static boolean eligible(int[] known, boolean[] suspect, boolean[] unavailable, int cell) {
+        return (unavailable == null || !unavailable[cell])
+            && (known[cell] == Vision.UNKNOWN || suspect != null && suspect[cell] && known[cell] == Vision.SHIP);
+    }
+
     int scout(int[] known) {
+        return scout(known, null, null);
+    }
+
+    int scout(int[] known, boolean[] unavailable) {
+        return scout(known, null, unavailable);
+    }
+
+    int scout(int[] known, boolean[] suspect, boolean[] unavailable) {
+        if (activeFallback != null) return activeFallback.scout(activeFallback.sourceCells, null, unavailable);
+        if (relaxedInput) {known = sourceCells;suspect = null;}
         double[] scores = new double[known.length], continuation = new double[known.length];
         List<Placement> possible = new ArrayList<>();
         // A locally fitting boat may prevent the rest of the observed fleet from
@@ -262,7 +345,7 @@ final class Strategy {
         for (Placement p : possible) {
             int hits = Long.bitCount(p.lo & requiredLo) + Long.bitCount(p.hi & requiredHi);
             for (int i = 0; i < known.length; i++) {
-                if (known[i] == Vision.UNKNOWN && p.contains(i)) {
+                if (eligible(known, suspect, unavailable, i) && p.contains(i)) {
                     double score = (1 + hits * hits) / (double)p.length;
                     scores[i] += score;
                     if (hits > 0) {
@@ -276,18 +359,23 @@ final class Strategy {
         // Unanchored placements otherwise overwhelm a single useful hit merely
         // because there are many more ways to place completely unseen boats.
         for (int i = 0; i < known.length; i++) {
-            if (known[i] == Vision.UNKNOWN && scores[i] > 0
+            if (eligible(known, suspect, unavailable, i) && scores[i] > 0
                     && (best < 0 || continuation[i] > continuation[best]
                     || continuation[i] == continuation[best] && scores[i] > scores[best])) {
                 best = i;
             }
         }
-        return finishScout(best, known, possible, scores);
+        return finishScout(best, known, possible, scores, suspect, unavailable);
     }
 
     // Evaluate the chosen boat's remaining red queries. Candidate placements
     // have equal prior weight; blue hits and completion feedback cost no red.
     int finishScout(int chosen, int[] known, List<Placement> possible, double[] scores) {
+        return finishScout(chosen, known, possible, scores, null, null);
+    }
+
+    int finishScout(int chosen, int[] known, List<Placement> possible, double[] scores,
+                    boolean[] suspect, boolean[] unavailable) {
         if (chosen < 0) {
             return chosen;
         }
@@ -314,7 +402,7 @@ final class Strategy {
         long all = (1L << positions.size()) - 1;
         int best = chosen, bestCost = Integer.MAX_VALUE;
         for (int cell = 0; cell < known.length; cell++) {
-            if (known[cell] == Vision.UNKNOWN) {
+            if (eligible(known, suspect, unavailable, cell)) {
                 long hit = all & plan.hit[cell], water = all & ~plan.hit[cell];
                 if (hit == 0 || water == 0 || (all & plan.halo[cell]) != all) {
                     continue;

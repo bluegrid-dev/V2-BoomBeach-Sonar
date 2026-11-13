@@ -28,6 +28,11 @@ final class CellModel {
         int best=0;for(int k=1;k<4;k++)if(out[k]>out[best])best=k;
         nanos+=System.nanoTime()-start;calls++;return best;
     }
+    float margin(){
+        float first=-Float.MAX_VALUE,second=-Float.MAX_VALUE;
+        for(float value:out)if(value>first){second=first;first=value;}else if(value>second)second=value;
+        return first-second;
+    }
     static void conv(float[] input,int size,int channels,float[] output,int count,float[] weights,float[] bias){
         int side=size/2;
         for(int o=0;o<count;o++)for(int y=0;y<side;y++)for(int x=0;x<side;x++){

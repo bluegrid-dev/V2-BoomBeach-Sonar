@@ -163,14 +163,22 @@ final class Vision {
     }
     static void accumulate(double[][] a,double[] row,double value){for(int i=0;i<8;i++){for(int j=0;j<8;j++)a[i][j]+=row[i]*row[j];a[i][8]+=row[i]*value;}}
     static final class Observation {
-        Grid grid;int[] cells,fleet;boolean[] covered;final int[] completed=new int[6];final List<int[]> sunk=new ArrayList<>();int blue=-1,red=-1,level=-1;String page="unknown",outline="";int targetX,targetY;
+        Grid grid;int[] cells,fleet;boolean[] covered,suspect;final int[] completed=new int[6];final List<int[]> sunk=new ArrayList<>();int blue=-1,red=-1,level=-1;String page="unknown",outline="";int targetX,targetY;
     }
     static int attackResult(Observation before,Observation after,int cell){
         if(!after.page.equals("board")||after.covered[cell])return UNKNOWN;
         // The final hit raises the whole hull away from the cell centre. The
         // newly dimmed sidebar icon is the visible result of that same attack.
-        for(int len=2;len<=5;len++)if(after.completed[len]>before.completed[len])return SHIP;
+        if(Arrays.equals(before.fleet,after.fleet))
+            for(int len=2;len<=5;len++)if(after.completed[len]>before.completed[len])return SHIP;
         return after.cells[cell];
+    }
+    static boolean attackReliable(Observation before,Observation after,int cell){
+        if(!before.page.equals("board")||!after.page.equals("board")
+            ||before.grid.n!=after.grid.n||!Arrays.equals(before.fleet,after.fleet)
+            ||!before.covered[cell]||after.covered[cell])return false;
+        for(int len=2;len<=5;len++)if(after.completed[len]>before.completed[len])return true;
+        return after.cells[cell]!=UNKNOWN&&(after.suspect==null||!after.suspect[cell]);
     }
     static int[] fleet(Frame f,int[] completed){
         List<Blob> silhouettes=blobs(f,24,250,132,570,p->r(p)>35&&g(p)>65&&g(p)-r(p)<50);
@@ -208,7 +216,7 @@ final class Vision {
         }
         boolean[] body=new boolean[n*n];for(int[] a:bodies){int[] cells=new int[a[2]-a[0]+a[3]-a[1]+1];int at=0;for(int r=a[0];r<=a[2];r++)for(int c=a[1];c<=a[3];c++){body[r*n+c]=true;cells[at++]=r*n+c;}o.sunk.add(cells);}
         for(int[] a:bodies)for(int r=Math.max(0,a[0]-1);r<=Math.min(n-1,a[2]+1);r++)for(int c=Math.max(0,a[1]-1);c<=Math.min(n-1,a[3]+1);c++){
-            int cell=r*n+c;if(!body[cell]&&o.cells[cell]==SHIP)o.cells[cell]=UNKNOWN;
+            int cell=r*n+c;if(!body[cell]&&o.cells[cell]==SHIP){o.cells[cell]=UNKNOWN;if(o.suspect!=null)o.suspect[cell]=true;}
         }
     }
     static Blob homeEntryMain(Frame f){
@@ -254,7 +262,7 @@ final class Vision {
             // moves. Apply this check to both geometry fits before using them.
             if(opened!=null&&o.grid!=null)for(Blob tile:tiles){double[] rc=o.grid.rc(tile.x(),tile.y());int r=(int)Math.round(rc[0]),c=(int)Math.round(rc[1]);double[] xy=o.grid.xy(r,c);
                 if(r>=0&&r<o.grid.n&&c>=0&&c<o.grid.n&&opened[r*o.grid.n+c]&&Math.hypot(xy[0]-tile.x(),xy[1]-tile.y())<4){o.grid=null;break;}}
-            if(o.grid!=null){o.page="board";int n=o.grid.n;o.cells=new int[n*n];o.covered=new boolean[n*n];
+            if(o.grid!=null){o.page="board";int n=o.grid.n;o.cells=new int[n*n];o.covered=new boolean[n*n];o.suspect=new boolean[n*n];
                 for(int r=0;r<n;r++)for(int c=0;c<n;c++){
                     double[] xy=o.grid.xy(r,c);boolean covered=false;
                     for(Blob tile:tiles)if(Math.hypot(xy[0]-tile.x(),xy[1]-tile.y())<4){covered=true;break;}
@@ -262,6 +270,9 @@ final class Vision {
                     int seen=model.classify(f,o.grid,r,c);
                     o.covered[r*n+c]=seen==0;
                     o.cells[r*n+c]=seen==3?UNKNOWN:seen;
+                    // A near tie is weak evidence, not a calibrated probability.
+                    // Structural and cross-frame conflicts are checked separately.
+                    o.suspect[r*n+c]=seen==3||model.margin()<1f;
                 }
                 removeRaisedHullSpill(o);
             }
