@@ -243,6 +243,20 @@ final class Board {
         return -1;
     }
 
+    int remainingShipCells() {
+        int remaining = 0;
+        for (int length : fleet) remaining += length;
+        for (int i = 0; i < known.length; i++) {
+            if (known[i] == Vision.SHIP && saved[i]) remaining--;
+        }
+        return remaining;
+    }
+
+    boolean lastShipCellScout(int cell) {
+        return cell >= 0 && cell < known.length && known[cell] == Vision.UNKNOWN
+            && !saved[cell] && attack() < 0 && remainingShipCells() == 1;
+    }
+
     String text() {
         StringBuilder s = new StringBuilder();
         for (int i = 0; i < known.length; i++) {

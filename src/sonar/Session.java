@@ -13,7 +13,7 @@ final class Session {
     final Device device;final Digits digits;final Network network;final Camera camera;
     Board board;Bitmap latest;Vision.Frame frame;int blueActions,redActions,levels,frames;long started=SystemClock.elapsedRealtime();boolean stopping;
     String phase="启动",outcome="running";JSONObject unresolved;FileOutputStream trace;
-    boolean stopPending,actionInFlight,reviewUsed,actionReviewUsed,resourceReviewUsed;
+    boolean stopPending,actionInFlight,reviewUsed,actionReviewUsed,resourceReviewUsed,forceBlueScout;
     Session(File root,JSONObject config)throws Exception{
         this.root=root;this.config=config;pkg=config.getString("package");
         if(!pkg.equals("com.supercell.boombeach"))throw new IOException("只支持海岛奇兵国际服包名");
@@ -88,7 +88,10 @@ final class Session {
         while(true){checkStop();Vision.Observation o=observe(grid,opened);if(condition.matches(o))return o;if(SystemClock.elapsedRealtime()>end)throw new WaitExpired(what+"未确认；当前页面="+o.page);if(!network.offline)SystemClock.sleep(100);}
     }
     Vision.Observation enterBoard(Vision.Grid geometry)throws Exception{
-        try{return enterBoardOnce(geometry);}
+        return enterBoard(geometry,false);
+    }
+    Vision.Observation enterBoard(Vision.Grid geometry,boolean stopAtVictory)throws Exception{
+        try{return enterBoardOnce(geometry,stopAtVictory);}
         catch(WaitExpired first){
             Vision.Observation current=observe(geometry);
             if(!current.page.equals("home"))throw first;
@@ -98,7 +101,7 @@ final class Session {
                 throw new IOException("回到主页后未找到声呐入口；保留原投弹记录",first);
             report("主页入口未打开，重新定位后进入声呐");event("navigation_recovery_started");
             try{
-                Vision.Observation recovered=enterBoardOnce(geometry);
+                Vision.Observation recovered=enterBoardOnce(geometry,stopAtVictory);
                 save("navigation-recovered.png");event("navigation_recovered");return recovered;
             }catch(WaitExpired second){
                 // A navigation failure must not fall into the shot-only review,
@@ -107,17 +110,21 @@ final class Session {
             }
         }
     }
-    Vision.Observation enterBoardOnce(Vision.Grid geometry)throws Exception{
+    Vision.Observation enterBoardOnce(Vision.Grid geometry,boolean stopAtVictory)throws Exception{
         report("进入声呐");
         Vision.Observation o=await("登录或活动页面",geometry,x->!x.page.equals("unknown"),30000);
         for(int step=0;step<4;step++){
             if(o.page.equals("board")){o=settledView(geometry,o);if(o.page.equals("board"))return o;}
+            if(o.page.equals("victory")&&stopAtVictory)return o;
             if(o.page.equals("victory")&&!network.offline){
                 continueVictory();
                 o=await("下一海域页面",null,x->!x.page.equals("unknown"),30000);
                 geometry=null;continue;
             }
-            if(o.page.equals("connection"))throw new IOException("仍处于连接中断页面");
+            if(o.page.equals("connection")){
+                if(stopAtVictory&&!network.offline)return o;
+                throw new IOException("仍处于连接中断页面");
+            }
             if(!o.page.equals("login")&&!o.page.equals("home")&&!o.page.equals("events"))throw new IOException("进入声呐时遇到未处理页面: "+o.page);
             final String before=o.page;
             int tapX=o.targetX,tapY=o.targetY;
@@ -139,6 +146,7 @@ final class Session {
                 save(entrance,"navigation-before.png");save("navigation-after.png");throw failure;
             }finally{entrance.recycle();}
         }if(o.page.equals("board")){o=settledView(geometry,o);if(o.page.equals("board"))return o;}
+        if(o.page.equals("victory")&&stopAtVictory)return o;
         throw new IOException("没有进入声呐活动");
     }
     Vision.Observation settledView(Vision.Grid geometry,Vision.Observation first)throws Exception{
@@ -149,7 +157,7 @@ final class Session {
             // sidebar does. Partial icons lose completion information used to
             // remove raised-hull occlusion; do not ingest that partial read.
             if(java.util.Arrays.equals(first.fleet,board.fleet))return first;
-            return await("完整舰队栏",geometry,o->o.page.equals("board")&&java.util.Arrays.equals(o.fleet,board.fleet),15000);
+            return await("完整舰队栏或侦察胜利",geometry,o->o.page.equals("victory")||o.page.equals("board")&&java.util.Arrays.equals(o.fleet,board.fleet),15000);
         }
         // The activity's camera pans after its controls appear. Calibrate/read only
         // when the visible tile boundaries stop moving, not on the first board frame.
@@ -164,7 +172,8 @@ final class Session {
         return settled;
     }
     boolean blueScout(){
-        return config.optString("scoutMode","Red").equals("Blue");
+        return config.optString("scoutMode","Red").equals("Blue")||forceBlueScout
+            ||board!=null&&board.remainingShipCells()==1;
     }
     void refreshScoutMode()throws Exception{
         JSONObject latestConfig=new JSONObject(new String(Files.readAllBytes(new File(root,"run.json").toPath()),StandardCharsets.UTF_8));
@@ -204,6 +213,10 @@ final class Session {
         if(board.refreshCompleted(before)){
             report("已补记完成艇及周边水格，重新选择目标");event("scout_replanned");return;
         }
+        // Only one unknown final hit may be retained. Certain hits have already
+        // taken the normal attack path before scout() is called.
+        final boolean keepVictory=blue&&board.lastShipCellScout(cell)&&before.covered[cell]
+            &&board.level>=0&&before.level==board.level;
         report((blue?"离线蓝侦 ":"离线红侦 ")+coordinate(cell));
         network.isolate();tap(blue?1119:1218,655);journal(kind,cell);aim(cell);if(blue)blueActions++;else redActions++;
         // Exit/re-enter before reading scouting results. No red decrement prerequisite.
@@ -211,24 +224,88 @@ final class Session {
         // The close button is locked while an offline shot is pending. Android
         // Back follows the client's activity-return path and retains that shot.
         try{
-            checkStop();if(!Device.foreground(pkg))throw new IOException("前台已离开目标游戏，停止返回");device.back();await("退出声呐",null,o->o.page.equals("home"),15000);scouted=enterBoard(board.grid);
-            if(!blue){
+            checkStop();if(!Device.foreground(pkg))throw new IOException("前台已离开目标游戏，停止返回");device.back();await("退出声呐",null,o->o.page.equals("home"),15000);scouted=enterBoard(board.grid,true);
+            if(!blue&&!scouted.page.equals("victory")){
                 SystemClock.sleep(300);
                 scouted=observe(board.grid);
-                if(!scouted.page.equals("board"))throw new IOException("红侦等待后未识别到棋盘：页面="+scouted.page);
+                if(scouted.page.equals("unknown"))scouted=await("红侦棋盘或胜利",board.grid,o->o.page.equals("board")||o.page.equals("victory"),15000);
+                if(!scouted.page.equals("board")&&!scouted.page.equals("victory"))throw new IOException("红侦等待后未识别到棋盘：页面="+scouted.page);
+            }
+            if(keepVictory&&!scouted.page.equals("victory")){
+                final int[] last={Vision.UNKNOWN};
+                scouted=await("末格蓝侦胜利或水格",board.grid,o->{
+                    if(o.page.equals("victory"))return true;
+                    int seen=Vision.attackResult(before,o,cell);
+                    boolean water=seen==Vision.WATER&&last[0]==Vision.WATER;last[0]=seen;return water;
+                },15000);
             }
         }
         catch(WaitExpired e){scouted=recheckAction(before,cell,kind,e);}
+        if(scouted.page.equals("victory")){
+            save("scout-victory.png");event("scout_victory");
+            if(keepVictory){retainBlueVictory();return;}
+            // A red reveal can finish several hidden cells at once. Withdraw
+            // it without advancing, then use single-cell scouts for this sea.
+            if(!blue){forceBlueScout=true;report("红侦出现胜利，撤回后本关改用蓝侦");}
+            withdrawScout(blue,baseline);return;
+        }
+        if(keepVictory&&Vision.attackResult(before,scouted,cell)!=Vision.WATER)
+            throw new IOException("末格蓝侦尚未确认胜利或水格，保留未确认记录");
         board.scout(scouted);save("scout.png");event("scout_observed");
+        withdrawScout(blue,baseline);
+    }
+    void withdrawScout(boolean blue,int baseline)throws Exception{
         report("恢复通信");network.disposeConnections();
         Vision.Observation disconnected=await("连接中断提示",null,o->o.page.equals("connection"),15000);
         network.restore();tap(disconnected.targetX,disconnected.targetY);
         await("离开连接提示",null,o->!o.page.equals("unknown")&&!o.page.equals("connection"),30000);
-        Vision.Observation restored=enterBoard(board.grid);
+        Vision.Observation restored=enterBoard(board.grid,true);
+        if(!restored.page.equals("board"))throw new IOException("侦察撤回后未确认原关棋盘：页面="+restored.page);
         int read=blue?restored.blue:restored.red;
         if(read!=baseline)restored=recheckAmmo((blue?"蓝侦后蓝弹":"红侦后红弹")+"没有恢复到原基线：原值"+baseline+"，现值"+read,blue,baseline);
+        if(!restored.page.equals("board")||restored.grid.n!=board.grid.n
+            ||!java.util.Arrays.equals(restored.fleet,board.fleet)||board.level>=0&&restored.level!=board.level)
+            throw new IOException("侦察撤回后棋盘与原关不一致，保留未确认记录");
         board.online(restored);settled();save("restored.png");event(blue?"blue_scout_reconciled":"red_reconciled");
         finishAction();
+    }
+    void retainBlueVictory()throws Exception{
+        final int previousLevel=board.level;
+        report("末格蓝侦命中，恢复通信并确认通关");save("victory.png");event("last_blue_victory");
+        // Keep the pending shot's connection and queued request intact. The
+        // normal withdrawal path destroys them while packets are blocked.
+        network.restore();
+        Vision.Observation current=await("恢复通信后的页面",null,o->!o.page.equals("unknown"),30000);
+        boolean boardSettled=false;
+        for(int step=0;step<6;step++){
+            if(current.page.equals("connection")){
+                report("末格蓝侦等待重连确认");tap(current.targetX,current.targetY);
+                await("离开连接提示",null,o->!o.page.equals("unknown")&&!o.page.equals("connection"),30000);
+                current=enterBoard(null,true);boardSettled=true;continue;
+            }
+            if(current.page.equals("victory")){
+                report("末格蓝侦已胜利，等待继续提示");
+                current=await("末格蓝侦继续提示",null,o->o.page.equals("connection")
+                    ||o.page.equals("victory")&&Vision.fraction(frame,550,528,740,552,Vision.WHITE)>0.05,15000);
+                if(current.page.equals("connection"))continue;
+                save("continue-ready.png");event("continue_ready");tap(640,540);
+                await("离开胜利画面",null,o->!o.page.equals("victory")&&!o.page.equals("unknown"),15000);
+                current=enterBoard(null,true);boardSettled=true;continue;
+            }
+            if(current.page.equals("board")){
+                if(!boardSettled){current=settledView(null,current);boardSettled=true;continue;}
+                if(current.level>previousLevel){event("victory");completeNextLevel(current);finishAction();return;}
+                // A reconnect may have discarded the shot. Observe only: do
+                // not replay it or count a local victory as a saved level.
+                current=await("末格蓝侦通关确认",null,o->!o.page.equals("unknown")
+                    &&(!o.page.equals("board")||o.level>previousLevel),15000);boardSettled=false;continue;
+            }
+            if(current.page.equals("home")||current.page.equals("events")||current.page.equals("login")){
+                current=enterBoard(null,true);boardSettled=true;continue;
+            }
+            throw new IOException("末格蓝侦恢复后未确认通关：页面="+current.page);
+        }
+        throw new IOException("末格蓝侦恢复后未确认进入下一关，保留未确认记录");
     }
     void attack(int cell)throws Exception{
         report("蓝弹攻击 "+coordinate(cell));
@@ -287,12 +364,14 @@ final class Session {
         Vision.Observation fresh=reviewView("投弹结果复核画面",0);
         boolean confirmed=false;
         if(before!=null&&before.page.equals("board")&&before.grid.n==board.grid.n){
-            if(scout&&fresh.page.equals("board")){
+            if(scout&&fresh.page.equals("victory"))confirmed=true;
+            else if(scout&&fresh.page.equals("board")){
                 for(int i=0;i<before.cells.length;i++)if(before.covered[i]&&!fresh.covered[i]&&fresh.cells[i]!=Vision.UNKNOWN){confirmed=true;break;}
             }else if(!scout&&!network.offline&&before.covered[cell])
                 confirmed=fresh.page.equals("victory")||Vision.attackResult(before,fresh,cell)!=Vision.UNKNOWN;
         }
-        // An offline victory overlay cannot replace the lost scouting picture.
+        // Scout victories are returned only to the explicit retain/withdraw
+        // branch; they never supply inferred red-scout cell positions.
         if(!confirmed)throw new IOException(cause.getMessage()+"；一次复核仍无法确认本次投弹，保留未确认记录");
         save("action-review-after.png");event("action_review_confirmed");return fresh;
     }
@@ -332,10 +411,14 @@ final class Session {
         await("离开胜利画面",null,o->!o.page.equals("victory")&&!o.page.equals("unknown"),15000);
     }
     void nextLevel()throws Exception{
-        levels++;save("victory.png");event("victory");continueVictory();
+        save("victory.png");event("victory");continueVictory();
         Vision.Observation next=enterBoard(null);
+        completeNextLevel(next);
+    }
+    void completeNextLevel(Vision.Observation next)throws Exception{
+        levels++;
         settled();
-        board=new Board(next);save("next-level.png");event("next_level");
+        board=new Board(next);forceBlueScout=false;save("next-level.png");event("next_level");
         int target=config.optInt("stopAfterLevels",0);if(target>0&&levels>=target)throw new Stopped("已完成 "+levels+" 关并进入下一关");
     }
     String coordinate(int i){return "("+(i/board.grid.n+1)+","+(i%board.grid.n+1)+")";}
