@@ -14,7 +14,6 @@ final class Session {
     Board board;Bitmap latest;Vision.Frame frame;int blueActions,redActions,levels,frames;long started=SystemClock.elapsedRealtime();boolean stopping;
     String phase="启动",outcome="running";JSONObject unresolved;FileOutputStream trace;
     boolean stopPending,actionInFlight,reviewUsed,actionReviewUsed,resourceReviewUsed;
-    ScoutProgress scoutProgress;boolean nextLevelPending;
     Session(File root,JSONObject config)throws Exception{
         this.root=root;this.config=config;pkg=config.getString("package");
         if(!pkg.equals("com.supercell.boombeach"))throw new IOException("只支持海岛奇兵国际服包名");
@@ -33,7 +32,6 @@ final class Session {
             report("新一轮启动，重新识别当前关卡");event("started");
             report("准备标准识别视图");camera.apply();launch();
             board=new Board(enterBoard(null));
-            scoutProgress=new ScoutProgress(board.level);
             save("initial.png");event("initial");
             while(true){checkStop();try{int target=board.attack();
                 if(target>=0){attack(target);continue;}
@@ -90,7 +88,7 @@ final class Session {
         while(true){checkStop();Vision.Observation o=observe(grid,opened);if(condition.matches(o))return o;if(SystemClock.elapsedRealtime()>end)throw new WaitExpired(what+"未确认；当前页面="+o.page);if(!network.offline)SystemClock.sleep(100);}
     }
     Vision.Observation enterBoard(Vision.Grid geometry)throws Exception{
-        try{return enteredBoard(enterBoardOnce(geometry));}
+        try{return enterBoardOnce(geometry);}
         catch(WaitExpired first){
             Vision.Observation current=observe(geometry);
             if(!current.page.equals("home"))throw first;
@@ -100,7 +98,7 @@ final class Session {
                 throw new IOException("回到主页后未找到声呐入口；保留原投弹记录",first);
             report("主页入口未打开，重新定位后进入声呐");event("navigation_recovery_started");
             try{
-                Vision.Observation recovered=enteredBoard(enterBoardOnce(geometry));
+                Vision.Observation recovered=enterBoardOnce(geometry);
                 save("navigation-recovered.png");event("navigation_recovered");return recovered;
             }catch(WaitExpired second){
                 // A navigation failure must not fall into the shot-only review,
@@ -108,14 +106,6 @@ final class Session {
                 throw new IOException("主页重入声呐未成功："+second.getMessage(),second);
             }
         }
-    }
-    Vision.Observation enteredBoard(Vision.Observation observation){
-        // Re-entering the same board is not progress. Consume a victory only
-        // after its following board is ready, including the reconnect path.
-        if(nextLevelPending&&observation.page.equals("board")){
-            scoutProgress.enteredNextLevel();nextLevelPending=false;
-        }
-        return observation;
     }
     Vision.Observation enterBoardOnce(Vision.Grid geometry)throws Exception{
         report("进入声呐");
@@ -174,8 +164,7 @@ final class Session {
         return settled;
     }
     boolean blueScout(){
-        boolean preferBlue=config.optString("scoutMode","Red").equals("Blue");
-        return scoutProgress==null?preferBlue:scoutProgress.blue(preferBlue);
+        return config.optString("scoutMode","Red").equals("Blue");
     }
     void refreshScoutMode()throws Exception{
         JSONObject latestConfig=new JSONObject(new String(Files.readAllBytes(new File(root,"run.json").toPath()),StandardCharsets.UTF_8));
@@ -341,7 +330,6 @@ final class Session {
         save("continue-ready.png");event("continue_ready");
         report("已通关，进入下一关");tap(640,540);
         await("离开胜利画面",null,o->!o.page.equals("victory")&&!o.page.equals("unknown"),15000);
-        if(scoutProgress!=null)nextLevelPending=true;
     }
     void nextLevel()throws Exception{
         levels++;save("victory.png");event("victory");continueVictory();
@@ -365,7 +353,7 @@ final class Session {
     JSONObject status()throws Exception{
         JSONObject o=new JSONObject().put("state",outcome).put("phase",phase).put("target","International").put("package",pkg).put("scoutMode",config.optString("scoutMode","Red")).put("elapsedMs",SystemClock.elapsedRealtime()-started).put("levels",levels).put("blueActions",blueActions).put("redActions",redActions).put("frames",frames).put("offline",network.offline).put("pending",pending.exists());
         if(board!=null)o.put("level",board.level).put("size",board.grid.n).put("red",board.red).put("blue",board.blue).put("board",board.text());
-        if(scoutProgress!=null)o.put("effectiveScoutMode",blueScout()?"Blue":"Red").put("redScoutUnlocked",!scoutProgress.blue(false));
+        o.put("effectiveScoutMode",blueScout()?"Blue":"Red");
         if(Vision.model!=null)o.put("modelCells",Vision.model.calls).put("modelMs",Vision.model.nanos/1000000.0);return o;
     }
     void report(String phase)throws Exception{this.phase=phase;atomic(new File(root,"status.json"),status().toString());System.out.println(phase);}

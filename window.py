@@ -49,8 +49,6 @@ def scout_label(active, preferred):
     active = active or {}
     preferred = active.get("scoutMode", preferred)
     effective = active.get("effectiveScoutMode", preferred)
-    if preferred == "Red" and effective == "Blue":
-        return "红侦未解锁，暂用蓝侦"
     return "蓝弹离线侦察" if effective == "Blue" else "红弹离线侦察"
 
 
@@ -372,7 +370,7 @@ class RuntimeWindow:
                     self.model.apply(event, device_epoch_origin)
                 if active is not None:
                     self.active = active
-                    # The checkbox follows preference, not the temporary effective mode.
+                    # Keep the saved preference while displaying recorded status.
                     mode = active.get("scoutMode")
                     if self.is_live() and mode in ("Red", "Blue") and not self.mode_pending and self.mode_requested in (None, mode):
                         self.mode_requested = None
